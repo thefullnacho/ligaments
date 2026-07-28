@@ -53,8 +53,20 @@ presence, an unwritten assumption becomes a page that either exists or does not,
 disagreeing becomes a flagged state rather than a silent one.
 
 The divergence got caught, a convention page now owns the definition with sourced thresholds and
-citations, and the losing repo kept its original figure under a different name, because it was a
-perfectly good quantity, it just was not the one the thresholds meant.
+citations, and the losing quantity kept its place under a different name, because it was perfectly
+good, it just was not the one the thresholds meant.
+
+**The code fix is not shipped.** The convention is decided, the alerting path still needs its own
+January 1 accumulation, and the module carries an open `DIVERGENCE:` note saying so. Deciding a
+lane is not the same as honouring it, and I would rather you read that here than find it in the
+source.
+
+Which is the honest ending to this story, because when I went back to check the numbers in this
+essay against the code, the wiki said the divergence was resolved and the repo said it was still
+open. Both were true about different things and neither said which. That is the same class of bug
+one layer up, and my own lint pass had not caught it yet, because lint is a thing I remember to
+run rather than a thing that runs. Which is the entire argument of [scaling.md](scaling.md), and I
+did not have to go looking for the example.
 
 ## The honest boundary
 
