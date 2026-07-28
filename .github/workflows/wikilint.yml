@@ -1,0 +1,33 @@
+name: wikilint
+
+# Runs the conflict linter on every push and PR, plus weekly, because drift
+# accumulates on a calendar rather than on commits.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 13 * * 1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The repos the wiki describes. Cross-repo CI is the hard part: this is
+      # the simplest shape that works, and it needs a token that can see them.
+      # - uses: actions/checkout@v4
+      #   with:
+      #     repository: your-org/service-a
+      #     path: repos/service-a
+      #     token: ${{ secrets.WIKILINT_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s lint -v
+
+      - name: Lint the wiki against its repos
+        run: python3 lint/wikilint.py -c wikilint.json --fail-on error

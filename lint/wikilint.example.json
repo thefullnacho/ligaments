@@ -1,0 +1,11 @@
+{
+  "wiki": "~/path/to/my-wiki",
+  "index": "index.md",
+  "journal_pages": ["index.md", "log.md"],
+  "canonical_dirs": ["entities"],
+  "stale_verify_days": 90,
+  "repos": [
+    {"name": "service-a", "path": "~/code/service-a"},
+    {"name": "service-b", "path": "~/code/service-b"}
+  ]
+}

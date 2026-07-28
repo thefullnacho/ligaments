@@ -84,6 +84,19 @@ Keyword detection does not catch that, and neither do embeddings. What does is m
 statements executable, so drift fails a build instead of waiting for a reviewer.
 [docs/scaling.md](docs/scaling.md) works through it, including the parts I have not built.
 
+## The linter
+
+[`lint/wikilint.py`](lint/) is the first piece of that, built and running. It checks the wiki
+against the repos it describes and exits non-zero on conflict, so it sits in CI.
+
+The check that matters most is `unresolved-downstream`: the wiki declares a topic resolved while a
+repo that cites it still carries an open `DIVERGENCE:` marker. That is not a hypothetical, it is
+the first thing it found when I pointed it at my own constellation. Someone decided, and the code
+never got the memo. A prose resolution is a claim about the future, and only a test makes it a
+claim about the present, which is what `unpinned-decision` is for.
+
+Stdlib only, no dependencies, 12 tests. Checks and config format: [lint/README.md](lint/README.md).
+
 ## Using it
 
 Copy [SCHEMA.md](SCHEMA.md) into a new repo as your agent instructions file, adjust the layout

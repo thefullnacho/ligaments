@@ -1,0 +1,4 @@
+# The real config points at local paths. Commit the example, not this.
+wikilint.json
+__pycache__/
+*.pyc
