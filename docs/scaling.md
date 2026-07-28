@@ -41,20 +41,22 @@ for a reviewer**. Humans only ever see the cases a test cannot express. Curation
 scaling with actor count, because most drift gets caught by machines that do not get tired and do
 not have a backlog.
 
-**Built (n=1):** a separate bug in the same module got pinned with a regression test in the repo
-that had to honour it, so the old behaviour cannot silently come back. One canonical statement,
-one test, one repo. That is the mechanism working at the smallest possible scale.
+**Built (n=1):** the definition divergence from the other page is now pinned by two tests in the
+repo that has to honour it
+([hestia@aea2c99](https://github.com/thefullnacho/hestia/commit/aea2c99)), so the old behaviour
+cannot silently return. One canonical statement, two tests, one repo. The mechanism working at the
+smallest possible scale.
 
 **Not built:** the general version, where assertions are declared once in the wiki and checked
 across every repo automatically.
 
-**And here is what happens without it.** The definition divergence above got a decided lane and a
-convention page, and the wiki recorded it as resolved. The repo that has to honour it still
-carries an open `DIVERGENCE:` note, because the code change is not written. Both statements are
-true, about different things, and nothing anywhere reconciles them. A prose resolution is a claim
-about the future; only a test makes it a claim about the present. I found this by hand, weeks
-later, while checking numbers for the other page, which is precisely the detection latency this
-whole design is meant to remove.
+**And here is what happens without it.** That divergence got a decided lane and a convention page,
+and the wiki recorded it as resolved, while the module still carried an open `DIVERGENCE:` note,
+because the code change was never written. Both statements true, about different things, nothing
+reconciling them. A prose resolution is a claim about the future; only a test makes it a claim
+about the present. I found it by hand two days later while checking numbers for another page,
+which is exactly the detection latency this design exists to remove. The linter now reports that
+shape in under a second, which is the whole difference between periodic and continuous.
 
 ## The detection layer is a linter, not a search
 

@@ -5,9 +5,10 @@ expensive problem was not recall, it was drift.
 
 ## The bug
 
-I run two projects that both compute growing-degree-days. One is a home automation agent that
-watches for pest emergence windows and pushes an alert when one opens. The other is a content
-pipeline that publishes the pest thresholds those alerts fire against.
+I run two projects that both compute growing-degree-days. One is
+[hestia](https://github.com/thefullnacho/hestia), a home automation agent that watches for pest
+emergence windows and pushes an alert when one opens. The other is a content pipeline that
+publishes the pest thresholds those alerts fire against.
 
 Growing-degree-days are an accumulation. You pick a base temperature, you pick a start date, and
 you add up the daily heat above that base from the start date forward. Both halves of my system
@@ -56,17 +57,32 @@ The divergence got caught, a convention page now owns the definition with source
 citations, and the losing quantity kept its place under a different name, because it was perfectly
 good, it just was not the one the thresholds meant.
 
-**The code fix is not shipped.** The convention is decided, the alerting path still needs its own
-January 1 accumulation, and the module carries an open `DIVERGENCE:` note saying so. Deciding a
-lane is not the same as honouring it, and I would rather you read that here than find it in the
-source.
+## The part I did not plan to write
 
-Which is the honest ending to this story, because when I went back to check the numbers in this
-essay against the code, the wiki said the divergence was resolved and the repo said it was still
-open. Both were true about different things and neither said which. That is the same class of bug
-one layer up, and my own lint pass had not caught it yet, because lint is a thing I remember to
-run rather than a thing that runs. Which is the entire argument of [scaling.md](scaling.md), and I
-did not have to go looking for the example.
+For two days, that was the whole story. Then I went to check these numbers against the source
+before publishing, and found that the wiki said the divergence was **resolved** while the module
+still carried an open `DIVERGENCE:` note. Both were true, about different things. The lane had been
+picked and the code had never been written. Nothing anywhere reconciled the two.
+
+That is the same class of bug one layer up: one word, "resolved", meaning two things, both sides
+internally consistent. My own periodic lint had not caught it, because lint was a thing I
+remembered to run rather than a thing that ran.
+
+So I wrote [the linter](../lint/) that afternoon. `unresolved-downstream` reports exactly this
+shape, and its first run against my own repos found this instance at error severity. Then I fixed
+the code:
+[thefullnacho/hestia@aea2c99](https://github.com/thefullnacho/hestia/commit/aea2c99) splits the two
+quantities into `pest_gdd` (from January 1, gates alerts) and `cumulative_gdd` (from the biofix,
+season GDD, which the almanac wanted all along). One archive pass fills both. Pre-split state
+replays the season on load, keeping its already-alerted set and staying quiet, because everything
+it opens today emerged weeks ago.
+
+Two tests now pin the decision, and the linter reports zero findings.
+
+Which is the honest ending, and a better one than the one I had drafted. A prose resolution is a
+claim about the future. Only a test makes it a claim about the present. I did not have to go
+looking for that example, it was waiting in my own repo, and the argument for making lint
+executable is [scaling.md](scaling.md).
 
 ## The honest boundary
 
