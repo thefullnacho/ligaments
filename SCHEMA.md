@@ -36,13 +36,13 @@ touching the wiki? If yes, it belongs in the repo, not here.
 
 ## Layout
 
-- `index.md` — the catalog. Every page with a one-line summary. Keep it current.
-- `ligaments.md` — the directed edges between projects (who feeds / inherits / sells / deploys
+- `index.md`: the catalog. Every page with a one-line summary. Keep it current.
+- `ligaments.md`: the directed edges between projects (who feeds / inherits / sells / deploys
   whom). This is the heart of the wiki.
-- `projects/*.md` — one page per repo: what it is, its boundary, its status, its edges.
-- `entities/*.md` — shared things that live in more than one repo. The canonical statement of a
+- `projects/*.md`: one page per repo: what it is, its boundary, its status, its edges.
+- `entities/*.md`: shared things that live in more than one repo. The canonical statement of a
   shared fact lives here, and repos defer to it.
-- `log.md` — append-only. Every ingest, decision, and lint pass gets a dated line.
+- `log.md`: append-only. Every ingest, decision, and lint pass gets a dated line.
 
 ## Conventions
 
