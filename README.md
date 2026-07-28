@@ -122,4 +122,5 @@ notice when two of them quietly stop agreeing.
 
 ## License
 
-Apache 2.0.
+Apache 2.0. `SCHEMA.md` is meant to be copied into your own repo and edited freely, so treat that
+file as a template with no attribution ceremony expected. See [NOTICE](NOTICE).

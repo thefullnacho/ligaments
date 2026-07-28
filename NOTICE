@@ -1,0 +1,9 @@
+ligaments
+Copyright 2026 Alexandre de Brantes
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+SCHEMA.md is intended to be copied into your own repository and edited freely
+as your agent instructions file. Treat that file as a template: no attribution,
+notice retention, or change-marking is expected or required when you adapt it.
+The Apache terms apply as normal to the linter and the rest of the repository.
