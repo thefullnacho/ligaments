@@ -84,7 +84,7 @@ of my work: a system that abstains beats one that bluffs.
 ## The linter
 
 [`lint/wikilint.py`](lint/) checks the wiki against the repos it describes and exits non-zero on
-conflict, so it sits in CI. Stdlib only, no dependencies, 12 tests.
+conflict, so it sits in CI. Stdlib only, no dependencies, 23 tests.
 
 The check that matters most is `unresolved-downstream`: the wiki declares a topic resolved while a
 repo that cites it still carries an open `DIVERGENCE:` marker. That is not hypothetical. It is the
@@ -92,6 +92,14 @@ first thing the linter found when I pointed it at my own constellation, in a mod
 resolution I had written two days earlier and never implemented. A prose resolution is a claim
 about the future; only a test makes it a claim about the present, which is what
 `unpinned-decision` is for.
+
+One check earns its keep differently from the rest: `constant-drift` compares the same named
+constant across repos and is the only one that **discovers** a divergence instead of enforcing a
+marker someone already wrote. Its scope comes from the wiki, since a constant is worth comparing
+precisely because the wiki named it.
+
+And it refuses to fail open. A configured repo path that does not exist is an error, not a skip,
+because the alternative is a clean report for a repo nobody looked at.
 
 Checks and config: [lint/README.md](lint/README.md).
 

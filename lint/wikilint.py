@@ -34,11 +34,40 @@ RE_OPEN_HINT = re.compile(r"\(\s*open\b", re.I)
 RE_WIKILINK = re.compile(r"\[\[([^\]|#]+)")
 RE_DATE = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
 
+# UPPER_SNAKE identifiers, which is the low-noise shape for a named constant. The
+# wiki's use of a name is what makes it worth checking, so this doubles as the
+# vocabulary extractor.
+RE_CONSTANT = re.compile(r"\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b")
+RE_ASSIGN = re.compile(
+    r"^[ \t]*(?:export[ \t]+)?(?:const|let|var|final|static)?[ \t]*"
+    r"([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[ \t]*(?::[^=\n]+)?=[ \t]*([^\n]+?)[ \t]*(?:[;,]|\#|//|$)",
+    re.M)
+# Only compare things that are unambiguously literal. An expression like
+# os.environ.get(...) may be equal across repos in every way that matters, and
+# guessing produces exactly the false positives that get a linter muted.
+RE_LITERAL = re.compile(r"""-?\d+(?:\.\d+)?|"[^"]*"|'[^']*'|[Tt]rue|[Ff]alse|None|null""")
+# Paths written in the wiki, e.g. `brain/pest_watch.py`. Requires a slash and a
+# known extension so prose is not mistaken for a path.
+RE_PATHLIKE = re.compile(
+    r"\b((?:[\w.-]+/)+[\w.-]+\.(?:py|md|json|ya?ml|toml|ts|tsx|js|jsx|sh|sql|txt|cfg|ini))\b")
+# Template placeholders that were never filled in. The Apache LICENSE shipping
+# with "[yyyy] [name of copyright owner]" is the canonical example.
+PLACEHOLDER_PATTERNS = [
+    (re.compile(r"\[yyyy\]|\[name of copyright owner\]", re.I), "unfilled licence placeholder"),
+    (re.compile(r"<(?:path/to|your-|constellation name|repo-one|repo-two)[^>\n]*>", re.I),
+     "unfilled template placeholder"),
+    (re.compile(r"\b(?:your-org|example\.com|CHANGEME|FIXME|XXX|TBD)\b"), "placeholder left in place"),
+    (re.compile(r"~/path/to/"), "example path left in place"),
+]
+
 SKIP_DIRS = {
     ".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist",
     "build", ".mypy_cache", ".pytest_cache", ".ruff_cache", "site-packages",
 }
-DEFAULT_REPO_EXTS = [".py", ".md", ".ts", ".tsx", ".js", ".jsx", ".toml", ".yaml", ".yml"]
+# .json matters more than it looks: vendored data files are exactly the kind of
+# cross-repo artifact this tool exists to track.
+DEFAULT_REPO_EXTS = [".py", ".md", ".json", ".ts", ".tsx", ".js", ".jsx",
+                     ".toml", ".yaml", ".yml"]
 
 
 @dataclass
@@ -141,6 +170,14 @@ class Wiki:
                     out.setdefault(t, []).append((s, i, line.strip()))
         return out
 
+    def vocabulary(self) -> set[str]:
+        """UPPER_SNAKE names the wiki mentions. The wiki naming a constant is what
+        makes it canonical, and therefore what makes it worth comparing."""
+        out: set[str] = set()
+        for txt in self.text.values():
+            out |= set(RE_CONSTANT.findall(txt))
+        return out
+
     def markers(self, kind: re.Pattern) -> list[tuple[str, int, str]]:
         hits = []
         for s, txt in self.text.items():
@@ -153,22 +190,43 @@ class Wiki:
 class Repos:
     """The repo side: open markers, and which wiki pages each file references."""
 
-    def __init__(self, specs: list[dict], ref_patterns: list[str], exts: list[str]):
+    def __init__(self, specs: list[dict], ref_patterns: list[str], exts: list[str],
+                 vocabulary: set[str] | None = None):
         self.ref_res = [re.compile(p) for p in ref_patterns]
         # (repo, path, lineno, line, referenced_slugs, is_test)
         self.open_markers: list[tuple[str, Path, int, str, set[str], bool]] = []
         self.refs: dict[str, set[tuple[str, Path, bool]]] = {}
+        # A configured path that does not exist is a config ERROR, never a silent
+        # skip. Failing open is the worst available behaviour for a consistency
+        # checker: every check "passes" and the report reads clean.
+        self.missing: list[tuple[str, Path]] = []
+        self.roots: dict[str, Path] = {}
+        self.rel_paths: set[str] = set()           # "repo/rel/path" for every file seen
+        self.basenames: dict[str, set[str]] = {}   # filename -> {"repo/rel/path", ...}
+        # name -> {(repo, rel, literal)}, restricted to the wiki's own vocabulary
+        self.assignments: dict[str, set[tuple[str, str, str]]] = {}
+        vocab = vocabulary or set()
 
         for spec in specs:
             name = spec["name"]
             root = Path(os.path.expanduser(spec["path"])).resolve()
             if not root.is_dir():
+                self.missing.append((name, root))
                 continue
+            self.roots[name] = root
             for f in walk(root, exts):
+                rel = f.relative_to(root).as_posix()
+                self.rel_paths.add(f"{name}/{rel}")
+                self.basenames.setdefault(f.name, set()).add(f"{name}/{rel}")
                 txt = read(f)
                 if not txt:
                     continue
                 is_test = "test" in f.name.lower() or "tests" in f.parts
+                if vocab and not is_test:
+                    for m in RE_ASSIGN.finditer(txt):
+                        const, value = m.group(1), m.group(2).strip()
+                        if const in vocab and RE_LITERAL.fullmatch(value):
+                            self.assignments.setdefault(const, set()).add((name, rel, value))
                 file_refs = self._refs_in(txt)
                 for s in file_refs:
                     self.refs.setdefault(s, set()).add((name, f, is_test))
@@ -190,6 +248,118 @@ class Repos:
             for m in r.finditer(text):
                 out.add(slug(m.group(m.lastindex or 0)))
         return out
+
+
+def check_config(repos: Repos, specs: list[dict]) -> list[Finding]:
+    """Fail loud on a misconfigured repo path.
+
+    Without this the tool fails OPEN: a typo in a path means the repo is never
+    scanned, every check finds nothing, and the report is a clean bill of health
+    for a repo nobody looked at. False assurance is worse than no assurance.
+    """
+    out = []
+    for name, root in repos.missing:
+        out.append(Finding(
+            check="config-error", severity="error",
+            message=f"configured repo '{name}' does not exist, so it was NOT checked",
+            where=str(root),
+            detail="Every other check silently passes for this repo. Fix the path or "
+                   "remove the entry; do not leave it dangling.",
+        ))
+    if specs and not repos.roots:
+        out.append(Finding(
+            check="config-error", severity="error",
+            message="no configured repo could be read, so nothing downstream was checked",
+            where="wikilint.json",
+            detail="A green run here means nothing at all.",
+        ))
+    return out
+
+
+def check_broken_path(wiki: Wiki, repos: Repos) -> list[Finding]:
+    """The wiki cites a repo file that no longer exists.
+
+    The cardinal rule says link down to the repo rather than copying facts up.
+    Links that rot turn that rule into a liability, and a rename is the most
+    common way a wiki starts quietly lying.
+    """
+    if not repos.roots:
+        return []
+    out = []
+    for page in sorted(wiki.pages):
+        seen: set[str] = set()
+        for m in RE_PATHLIKE.finditer(wiki.text.get(page, "")):
+            p = m.group(1)
+            if p in seen:
+                continue
+            seen.add(p)
+            # A path may be written bare ("brain/x.py") or repo-qualified
+            # ("hestia/brain/x.py"); accept either, and ignore URLs.
+            if "://" in wiki.text.get(page, "")[max(0, m.start() - 8):m.start()]:
+                continue
+            qualified = {f"{r}/{p}" for r in repos.roots} | {p}
+            if qualified & repos.rel_paths:
+                continue
+            elsewhere = repos.basenames.get(Path(p).name)
+            if elsewhere:
+                out.append(Finding(
+                    check="moved-path", severity="info",
+                    message=f"'{p}' is not there, but that filename exists elsewhere",
+                    where=wiki.rel(wiki.pages[page]),
+                    detail=f"found at: {', '.join(sorted(elsewhere)[:3])}. Probably a move the "
+                           "wiki did not follow.",
+                ))
+            else:
+                out.append(Finding(
+                    check="broken-path", severity="warn",
+                    message=f"'{p}' does not exist in any configured repo",
+                    where=wiki.rel(wiki.pages[page]),
+                    detail="Either the file is gone and this claim is stale, or the repo that "
+                           "owns it is missing from the config.",
+                ))
+    return out
+
+
+def check_unfilled_placeholder(wiki: Wiki) -> list[Finding]:
+    """Template placeholders that shipped as if they were content."""
+    out = []
+    for page in sorted(wiki.pages):
+        for i, line in enumerate(wiki.text.get(page, "").splitlines(), 1):
+            for pat, why in PLACEHOLDER_PATTERNS:
+                m = pat.search(line)
+                if not m:
+                    continue
+                out.append(Finding(
+                    check="unfilled-placeholder", severity="warn",
+                    message=f"{why}: {m.group(0)[:60]}",
+                    where=f"{page}.md:{i}",
+                    detail=line.strip()[:150],
+                ))
+                break
+    return out
+
+
+def check_constant_drift(wiki: Wiki, repos: Repos) -> list[Finding]:
+    """The same named constant holding different values in different repos.
+
+    This is the only check that DISCOVERS a divergence rather than enforcing an
+    annotation someone already wrote. Scope comes from the wiki: a constant is
+    worth comparing precisely because the wiki thought it worth naming.
+    """
+    out = []
+    for const, sites in sorted(repos.assignments.items()):
+        values = {v for _, _, v in sites}
+        if len(values) < 2:
+            continue
+        where = "; ".join(f"{r}/{p} = {v}" for r, p, v in sorted(sites))
+        out.append(Finding(
+            check="constant-drift", severity="warn",
+            message=f"'{const}' has {len(values)} different values across repos",
+            where=where,
+            detail="The wiki names this constant, so the repos are expected to agree. "
+                   "If the difference is deliberate, say so on the canonical page.",
+        ))
+    return out
 
 
 def check_unresolved_downstream(wiki: Wiki, repos: Repos) -> list[Finding]:
@@ -340,9 +510,14 @@ def main(argv=None) -> int:
         return 2
 
     wiki = Wiki(wiki_root, cfg["index"], cfg.get("journal_pages"))
-    repos = Repos(cfg["repos"], cfg["wiki_ref_patterns"], cfg["repo_extensions"])
+    repos = Repos(cfg["repos"], cfg["wiki_ref_patterns"], cfg["repo_extensions"],
+                  vocabulary=wiki.vocabulary())
 
     findings: list[Finding] = []
+    findings += check_config(repos, cfg["repos"])
+    findings += check_constant_drift(wiki, repos)
+    findings += check_unfilled_placeholder(wiki)
+    findings += check_broken_path(wiki, repos)
     findings += check_unresolved_downstream(wiki, repos)
     findings += check_unpinned_decision(wiki, repos, cfg["canonical_dirs"])
     findings += check_stale_verify(wiki, cfg["stale_verify_days"], datetime.now().date())
