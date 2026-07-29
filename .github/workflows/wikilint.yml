@@ -29,5 +29,16 @@ jobs:
       - name: Unit tests
         run: python3 -m unittest discover -s lint -v
 
+      # This repo publishes the schema and the linter, not a wiki, and a real
+      # wikilint.json points at local paths so it is gitignored. In a wiki repo
+      # that ships a config, this step runs and is the whole point.
       - name: Lint the wiki against its repos
+        if: hashFiles('wikilint.json') != ''
         run: python3 lint/wikilint.py -c wikilint.json --fail-on error
+
+      - name: No wiki config, lint skipped
+        if: hashFiles('wikilint.json') == ''
+        run: |
+          echo "No wikilint.json in this repo, so there is no wiki to lint here."
+          echo "The unit tests above exercise every check against synthetic fixtures."
+          echo "Copy lint/wikilint.example.json to wikilint.json in your own wiki repo."
