@@ -33,6 +33,10 @@ RE_RESOLUTION = re.compile(r"\bRESOLVED\b[^\n]{0,24}?(?:20\d{2}-\d{2}-\d{2}|:)",
 RE_OPEN_HINT = re.compile(r"\(\s*open\b", re.I)
 RE_WIKILINK = re.compile(r"\[\[([^\]|#]+)")
 RE_DATE = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
+# A declared vendoring edge: one repo holds a hand-copied duplicate of a file
+# another repo owns. Written on the page describing the edge, e.g.
+#   VENDORED: `site/content/crops/pests.json` -> `hestia/data/pests.json`
+RE_VENDORED = re.compile(r"VENDORED:\s*`?([\w./-]+)`?\s*(?:->|=>|→)\s*`?([\w./-]+)`?", re.I)
 
 # UPPER_SNAKE identifiers, which is the low-noise shape for a named constant. The
 # wiki's use of a name is what makes it worth checking, so this doubles as the
@@ -170,6 +174,16 @@ class Wiki:
                     out.setdefault(t, []).append((s, i, line.strip()))
         return out
 
+    def vendor_pairs(self) -> list[tuple[str, int, str, str]]:
+        """(page, lineno, source, destination) for every declared VENDORED: edge."""
+        out = []
+        for s, txt in self.text.items():
+            for i, line in enumerate(txt.splitlines(), 1):
+                m = RE_VENDORED.search(line)
+                if m:
+                    out.append((s, i, m.group(1), m.group(2)))
+        return out
+
     def vocabulary(self) -> set[str]:
         """UPPER_SNAKE names the wiki mentions. The wiki naming a constant is what
         makes it canonical, and therefore what makes it worth comparing."""
@@ -241,6 +255,19 @@ class Repos:
                     window = "\n".join(lines[max(0, i - 4): i + 12])
                     near = self._refs_in(window) or file_refs
                     self.open_markers.append((name, f, i, line.strip(), near, is_test))
+
+    def resolve(self, qualified: str) -> Path | None:
+        """Turn "repo/rel/path" into an absolute path, if that file exists."""
+        head, _, rest = qualified.partition("/")
+        if head in self.roots and rest:
+            cand = self.roots[head] / rest
+            if cand.is_file():
+                return cand
+        for root in self.roots.values():          # tolerate an unqualified path
+            cand = root / qualified
+            if cand.is_file():
+                return cand
+        return None
 
     def _refs_in(self, text: str) -> set[str]:
         out: set[str] = set()
@@ -358,6 +385,51 @@ def check_constant_drift(wiki: Wiki, repos: Repos) -> list[Finding]:
             where=where,
             detail="The wiki names this constant, so the repos are expected to agree. "
                    "If the difference is deliberate, say so on the canonical page.",
+        ))
+    return out
+
+
+def check_vendored_drift(wiki: Wiki, repos: Repos) -> list[Finding]:
+    """A hand-copied file that has stopped matching the copy it came from.
+
+    The second check that DISCOVERS rather than enforces. Vendoring is a `cp`
+    plus a promise, and the promise is the part that rots: the owning repo edits
+    the file, the consumer keeps serving a stale snapshot, and nothing anywhere
+    says so. Both ends are read directly, so no marker is needed beyond the
+    declaration of the edge itself.
+    """
+    if not repos.roots:
+        return []
+    out = []
+    for page, lineno, src, dst in wiki.vendor_pairs():
+        src_p, dst_p = repos.resolve(src), repos.resolve(dst)
+        gone = [q for q, p in ((src, src_p), (dst, dst_p)) if p is None]
+        if gone:
+            out.append(Finding(
+                check="vendored-missing", severity="warn",
+                message=f"vendoring edge names a file that does not exist: {', '.join(gone)}",
+                where=f"{page}.md:{lineno}",
+                detail="Either the path is wrong, or the repo that owns it is not configured.",
+            ))
+            continue
+        a, b = src_p.read_bytes(), dst_p.read_bytes()
+        if a == b:
+            continue
+        detail = (f"source {len(a)} bytes, copy {len(b)} bytes\n"
+                  f"  source: {src_p}\n  copy:   {dst_p}")
+        try:
+            sa, sb = a.decode().splitlines(), b.decode().splitlines()
+            first = next((i for i, (x, y) in enumerate(zip(sa, sb), 1) if x != y),
+                         min(len(sa), len(sb)) + 1)
+            detail += f"\nfirst difference at line {first}"
+        except UnicodeDecodeError:
+            pass
+        out.append(Finding(
+            check="vendored-drift", severity="warn",
+            message=f"'{dst}' no longer matches its source '{src}'",
+            where=f"{page}.md:{lineno}",
+            detail=detail + "\nRe-vendor, or record on the canonical page that the lag is "
+                            "deliberate.",
         ))
     return out
 
@@ -516,6 +588,7 @@ def main(argv=None) -> int:
     findings: list[Finding] = []
     findings += check_config(repos, cfg["repos"])
     findings += check_constant_drift(wiki, repos)
+    findings += check_vendored_drift(wiki, repos)
     findings += check_unfilled_placeholder(wiki)
     findings += check_broken_path(wiki, repos)
     findings += check_unresolved_downstream(wiki, repos)

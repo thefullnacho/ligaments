@@ -52,6 +52,15 @@ touching the wiki? If yes, it belongs in the repo, not here.
 - Flag uncertainty explicitly:
   - `VERIFY:` believed but unconfirmed.
   - `DIVERGENCE:` a known mismatch between repos, plus whether it is intentional.
+- Declare vendoring edges in a shape a machine can check, as a sub-bullet under the edge in
+  `ligaments.md`:
+
+  ```
+  - VENDORED: `owner-repo/path/to/file` -> `consumer-repo/path/to/copy`
+  ```
+
+  A vendored file is a `cp` plus a promise, and the promise is the part that rots. Written this
+  way, the linter reads both ends and compares them, with no marker needed in either repo.
 - Keep pages short. A page that needs scrolling is two pages.
 - One canonical statement per shared fact. If two pages state the same thing, one of them is
   wrong and you will not find out which until it matters.

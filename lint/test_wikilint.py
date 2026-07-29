@@ -42,6 +42,7 @@ def run(cfg_path: Path) -> list[wl.Finding]:
     out = []
     out += wl.check_config(repos, cfg["repos"])
     out += wl.check_constant_drift(wiki, repos)
+    out += wl.check_vendored_drift(wiki, repos)
     out += wl.check_unfilled_placeholder(wiki)
     out += wl.check_broken_path(wiki, repos)
     out += wl.check_unresolved_downstream(wiki, repos)
@@ -279,6 +280,57 @@ class WikiLintTests(unittest.TestCase):
                               'GDD_BASE = float(os.environ.get("X", "50"))\n',
                               'GDD_BASE = float(os.getenv("X", "50"))\n')
         self.assertEqual(self.checks(run(cfg), "constant-drift"), [])
+
+    def _vendor_cfg(self, wiki_line: str, src_body: str, dst_body: str) -> Path:
+        wiki, site, app = self.tmp / "demo-wiki", self.tmp / "site", self.tmp / "app"
+        for p, body in [(wiki / "index.md", "[[ligaments]]\n"),
+                        (wiki / "ligaments.md", wiki_line),
+                        (site / "content/pests.json", src_body),
+                        (app / "data/pests.json", dst_body)]:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body)
+        cfg_path = self.tmp / "wikilint.json"
+        cfg_path.write_text(json.dumps({
+            "wiki": str(wiki), "index": "index.md",
+            "repos": [{"name": "site", "path": str(site)}, {"name": "app", "path": str(app)}],
+            "wiki_ref_patterns": [r"demo-wiki/(?:[\w.-]+/)*([\w.-]+)\.md"],
+        }))
+        return cfg_path
+
+    def test_vendored_drift_detected(self):
+        """The second discover-class check: a hand-copied file that stopped matching."""
+        cfg = self._vendor_cfg(
+            "VENDORED: `site/content/pests.json` -> `app/data/pests.json`\n",
+            '{"aphid": 55}\n', '{"aphid": 60}\n')
+        hits = self.checks(run(cfg), "vendored-drift")
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0].severity, "warn")
+        self.assertIn("app/data/pests.json", hits[0].message)
+        self.assertIn("first difference at line 1", hits[0].detail)
+
+    def test_vendored_copies_in_sync_are_quiet(self):
+        cfg = self._vendor_cfg(
+            "VENDORED: `site/content/pests.json` -> `app/data/pests.json`\n",
+            '{"aphid": 55}\n', '{"aphid": 55}\n')
+        self.assertEqual(self.checks(run(cfg), "vendored-drift"), [])
+
+    def test_vendored_missing_file_is_reported_separately(self):
+        cfg = self._vendor_cfg(
+            "VENDORED: `site/content/gone.json` -> `app/data/pests.json`\n",
+            '{"aphid": 55}\n', '{"aphid": 55}\n')
+        hits = self.checks(run(cfg), "vendored-missing")
+        self.assertEqual(len(hits), 1)
+        self.assertIn("gone.json", hits[0].message)
+        self.assertEqual(self.checks(run(cfg), "vendored-drift"), [])
+
+    def test_vendored_declaration_needs_no_marker_in_either_repo(self):
+        """The point of a discover-class check: neither repo says anything."""
+        cfg = self._vendor_cfg(
+            "VENDORED: `site/content/pests.json` -> `app/data/pests.json`\n",
+            '{"a": 1}\n', '{"a": 2}\n')
+        found = run(cfg)
+        self.assertEqual(self.checks(found, "unresolved-downstream"), [])  # no markers exist
+        self.assertEqual(len(self.checks(found, "vendored-drift")), 1)     # still caught
 
     def test_json_is_scanned_by_default(self):
         """Vendored data files are the cross-repo artifact this tool exists for."""

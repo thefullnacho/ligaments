@@ -84,7 +84,7 @@ of my work: a system that abstains beats one that bluffs.
 ## The linter
 
 [`lint/wikilint.py`](lint/) checks the wiki against the repos it describes and exits non-zero on
-conflict, so it sits in CI. Stdlib only, no dependencies, 23 tests.
+conflict, so it sits in CI. Stdlib only, no dependencies, 27 tests.
 
 The check that matters most is `unresolved-downstream`: the wiki declares a topic resolved while a
 repo that cites it still carries an open `DIVERGENCE:` marker. That is not hypothetical. It is the
@@ -93,10 +93,11 @@ resolution I had written two days earlier and never implemented. A prose resolut
 about the future; only a test makes it a claim about the present, which is what
 `unpinned-decision` is for.
 
-One check earns its keep differently from the rest: `constant-drift` compares the same named
-constant across repos and is the only one that **discovers** a divergence instead of enforcing a
-marker someone already wrote. Its scope comes from the wiki, since a constant is worth comparing
-precisely because the wiki named it.
+Two checks earn their keep differently from the rest. `constant-drift` compares the same named
+constant across repos, and `vendored-drift` compares a hand-copied file against the copy it came
+from. Both **discover** a divergence instead of enforcing a marker someone already wrote, which
+means they can catch a problem nobody has noticed yet. Everything else needs a human to have
+written the marker first, and that is the honest ceiling on this design.
 
 And it refuses to fail open. A configured repo path that does not exist is an error, not a skip,
 because the alternative is a clean report for a repo nobody looked at.
